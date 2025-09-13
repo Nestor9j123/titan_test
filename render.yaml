@@ -1,0 +1,106 @@
+services:
+  # Service MinIO pour stockage de fichiers
+  - type: web
+    name: titan-minio
+    env: docker
+    dockerfilePath: ./Dockerfile.minio
+    plan: starter
+    region: oregon
+    branch: main
+    
+    # Variables d'environnement MinIO
+    envVars:
+      - key: MINIO_ROOT_USER
+        value: "admin"
+      - key: MINIO_ROOT_PASSWORD
+        generateValue: true # Render génère un mot de passe sécurisé
+    
+    # Disk persistant pour les données MinIO
+    disk:
+      name: minio-data
+      mountPath: /data
+      sizeGB: 10 # Commencer avec 10GB, extensible
+    
+    # Health check MinIO
+    healthCheckPath: /minio/health/live
+
+  # Application Spring Boot principale
+  - type: web
+    name: titan-backend
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter # ou standard selon vos besoins
+    region: oregon # ou frankfurt pour l'Europe
+    branch: main
+    buildCommand: ""
+    startCommand: ""
+    
+    # Variables d'environnement
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: SERVER_PORT
+        value: 8080
+      - key: JAVA_OPTS
+        value: "-Xmx1g -Xms512m -XX:+UseG1GC -XX:+UseContainerSupport"
+      
+      # Base de données (sera automatiquement remplie par Render)
+      - key: DATABASE_URL
+        fromDatabase:
+          name: titan-postgres
+          property: connectionString
+      - key: DATABASE_USERNAME
+        fromDatabase:
+          name: titan-postgres
+          property: user
+      - key: DATABASE_PASSWORD
+        fromDatabase:
+          name: titan-postgres
+          property: password
+      
+      # JWT Configuration
+      - key: JWT_SECRET
+        generateValue: true # Render génère automatiquement
+      - key: JWT_EXPIRATION_MS
+        value: "86400000"
+      
+      # MinIO Configuration (connexion au service MinIO interne)
+      - key: MINIO_URL
+        value: "http://titan-minio:9000" # URL interne Render pour communication inter-services
+      - key: MINIO_ACCESS_KEY
+        fromService:
+          type: web
+          name: titan-minio
+          envVarKey: MINIO_ROOT_USER
+      - key: MINIO_SECRET_KEY
+        fromService:
+          type: web
+          name: titan-minio  
+          envVarKey: MINIO_ROOT_PASSWORD
+      - key: MINIO_BUCKET_SONGS
+        value: "titan-songs-prod"
+      - key: MINIO_BUCKET_IMAGES
+        value: "titan-images-prod"
+      - key: MINIO_BUCKET_VIDEOS
+        value: "titan-videos-prod"
+      - key: MINIO_BUCKET_PHOTOS
+        value: "titan-photos-prod"
+      
+      # Email Configuration
+      # IMPORTANT: Configure these manually in Render Dashboard after deployment
+      - key: MAIL_HOST
+        value: "smtp.gmail.com"
+      - key: MAIL_PORT
+        value: "587"
+      # Note: MAIL_USERNAME and MAIL_PASSWORD must be set manually in Render Dashboard
+      # for security reasons. Do not include them in this file.
+
+    # Health check
+    healthCheckPath: /actuator/health
+
+  # Base de données PostgreSQL
+databases:
+  - name: titan-postgres
+    databaseName: titan_prod
+    user: titan_user
+    plan: starter # 1GB gratuit, puis $7/mois pour 10GB

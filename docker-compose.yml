@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # Application Spring Boot
+  titan-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: titan-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5433/titan_db
+      - SPRING_DATASOURCE_USERNAME=titan_user
+      - SPRING_DATASOURCE_PASSWORD=titan_password
+      - MINIO_URL=http://minio:9000
+      - MINIO_ACCESS_KEY=admin
+      - MINIO_SECRET_KEY=password123
+    depends_on:
+      - postgres
+      - minio
+    networks:
+      - titan-network
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: titan-postgres
+    environment:
+      - POSTGRES_DB=titan_db
+      - POSTGRES_USER=titan_user
+      - POSTGRES_PASSWORD=titan_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - titan-network
+    restart: unless-stopped
+
+  # MinIO pour le stockage de fichiers
+  minio:
+    image: minio/minio:latest
+    container_name: titan-minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - titan-network
+    restart: unless-stopped
+
+  # Interface d'administration MinIO (optionnel)
+  minio-mc:
+    image: minio/mc:latest
+    container_name: titan-minio-mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10;
+      /usr/bin/mc alias set minio http://minio:9000 admin password123;
+      /usr/bin/mc mb minio/titan-songs --ignore-existing;
+      /usr/bin/mc mb minio/titan-images --ignore-existing;
+      /usr/bin/mc mb minio/titan-videos --ignore-existing;
+      /usr/bin/mc mb minio/titan-photos --ignore-existing;
+      /usr/bin/mc policy set public minio/titan-songs;
+      /usr/bin/mc policy set public minio/titan-images;
+      /usr/bin/mc policy set public minio/titan-videos;
+      /usr/bin/mc policy set public minio/titan-photos;
+      exit 0;
+      "
+    networks:
+      - titan-network
+
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+
+networks:
+  titan-network:
+    driver: bridge

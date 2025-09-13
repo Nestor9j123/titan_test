@@ -1,0 +1,1 @@
+package nitchcorp.backend.titan.shared.securite.mailling.dto;
